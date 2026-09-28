@@ -1,4 +1,4 @@
-# Display firmware
+| 4 | GPU | usage, clock, temp, power, VRAM; combined power + framerate history |# Display firmware
 
 Firmware for an Arduino MEGA driving a 320×240 parallel TFT, showing telemetry
 sent by the [desktop agent](../DESKTOP/README.md) across seven tap-switched
@@ -134,6 +134,24 @@ The comparison only describes the screen when exactly one sample was pushed and
 neither geometry nor scale moved, so callers pass `full` after a layout change or
 when an auto-scaled maximum moves — both change every bar at once.
 
+### The GPU plot's shared scale
+
+Power and framerate share one plot and one vertical scale: power as filled bars,
+framerate as a line over them. Two fills overlap into mush; two lines throw away
+the shape that makes a load graph readable at a glance.
+
+The scale is **semi-fixed** — 200 with rules every 50, stepping to 400 with rules
+every 100 when something needs the room. It follows the peak of the *visible
+history* rather than the latest reading, so one spike cannot rescale the plot for
+a single frame, and it steps down only below 180: a value sitting exactly on the
+boundary would otherwise flip the scale every tick, and each flip is a full
+repaint.
+
+Samples are stored as **units ÷ 2**, not as a percentage of the active scale.
+That is what keeps older samples correct when the scale steps — a stored
+percentage would silently mean something different after the change. One byte
+covers 0–508 at 2-unit resolution, about a pixel on a 119 px plot.
+
 ### Screen persistence
 
 A screen that stays on show for **one minute** is written to EEPROM, and restored
@@ -176,8 +194,8 @@ flat line out of nothing.
   stack. Another full-history screen would need something trimmed.
 - **No per-core temperature.** Desktop CPUs expose package or per-CCD sensors,
   not one per core. The field is sent as `-1` rather than faking it.
-- **Horizontal 20% rules are skipped on plots under 40 px**, so the GPU strips
-  get vertical grid only — rules every 4 px would be solid noise.
+- **Horizontal rules are skipped on plots under 40 px**, where they would merge
+  into noise rather than reading as a scale.
 
 ---
 

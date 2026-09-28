@@ -132,8 +132,24 @@ void meterV(int16_t x, int16_t y, int16_t w, int16_t h, int percent,
 // two pixels of a brightened shade so the surface of the plot stays legible.
 // `full` forces every column; leave it false for the per-tick update, where only
 // the columns whose value differs from their left neighbour have changed.
+//
+// `fullScale` is the stored byte that reaches full height. 100 means the samples
+// are percentages, which is what every screen but the GPU one uses.
 void graph(int16_t x, int16_t y, int16_t w, int16_t h, const Graph &g,
-           uint16_t fixed = 0, uint8_t hGridPercent = 0, bool full = true);
+           uint16_t fixed = 0, uint8_t hGridPercent = 0, bool full = true,
+           uint8_t fullScale = 100);
+
+// Two series sharing one plot and one vertical scale: `bars` filled in the house
+// style, `line` drawn over them.
+//
+// One filled series and one line, rather than two of either. Two fills overlap
+// into mush, and two lines throw away the shape that makes a load graph readable
+// at a glance -- so the quantity with mass gets the fill and the signal rides on
+// top of it.
+void graphDual(int16_t x, int16_t y, int16_t w, int16_t h,
+               const Graph &bars, uint16_t barColor,
+               const Graph &line, uint16_t lineColor,
+               uint8_t fullScale, uint8_t hGridPercent, bool full);
 
 // A graph panel is drawn in two halves, for the same reason the screens are:
 // its scale does not change from one second to the next, and repainting text

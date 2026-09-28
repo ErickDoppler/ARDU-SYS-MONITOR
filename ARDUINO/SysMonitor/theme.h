@@ -48,6 +48,14 @@
 #define C_NET_RX    0x2FEA  // green down
 #define C_NET_TX    0xFC10  // pink up
 #define C_PWR       0xFFE0  // yellow
+// Framerate: bright lime. Its own constant rather than reusing C_LOW, which is
+// the calm green the meters heat-colour with -- brightening that would repaint
+// every meter on every screen.
+//
+// Deliberately green-dominant rather than the marginally brighter chartreuse:
+// this line is drawn over the yellow power fill, so it has to separate by hue as
+// well as by brightness. Luma 206 against the dimmed fill's 163.
+#define C_FPS       0x67E6  // #62FF31
 #define C_TEMP      0xFB40
 
 // --- link indicator -------------------------------------------------------

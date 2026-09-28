@@ -167,8 +167,94 @@ static uint8_t columnValue(const Graph &g, int16_t w, int16_t col) {
     return g.at((uint16_t)idx);
 }
 
+// Bar height for a stored sample, given the byte that means full height.
+static int16_t barHeightFor(uint8_t v, int16_t h, uint8_t fullScale) {
+    if (v == GRAPH_NONE || fullScale == 0) return 0;
+    int16_t barH = (int16_t)((int32_t)v * h / fullScale);
+    if (barH < 1 && v > 0) barH = 1;  // a nonzero reading never vanishes
+    if (barH > h) barH = h;
+    return barH;
+}
+
+// Row for a sample, used by the line series.
+static int16_t rowFor(uint8_t v, int16_t y, int16_t h, uint8_t fullScale) {
+    const int16_t barH = barHeightFor(v, h, fullScale);
+    return y + h - 1 - (barH > 0 ? barH - 1 : 0);
+}
+
+// Paints one column's background plus any horizontal rules crossing it. Shared so
+// the single and dual plots cannot drift apart on grid appearance.
+static void paintColumnBackground(int16_t cx, int16_t y, int16_t h, int16_t w,
+                                  int16_t col, int16_t bgH, uint8_t hGridPercent) {
+    // Static grid, measured back from the right edge so the newest column is
+    // always a division and the lines agree with the time labels below. It does
+    // not move with the data: the bars sliding across a fixed reference is what
+    // makes the motion legible.
+    const bool onGrid = (((w - 1 - col) % GRAPH_GRID_SAMPLES) == 0);
+    if (bgH > 0) tft.drawFastVLine(cx, y, bgH, onGrid ? C_GRID : C_BG);
+
+    // Horizontal rules live in the background, so repainting a column erases
+    // whatever crossed it -- restore them here, for this column only.
+    if (hGridPercent && h >= GRAPH_HGRID_MIN_H) {
+        for (uint16_t pct = hGridPercent; pct <= 100;
+             pct = (uint16_t)(pct + hGridPercent)) {
+            const int16_t rowY = y + h - 1 - (int16_t)((int32_t)pct * (h - 1) / 100);
+            if (rowY < y + bgH) tft.drawPixel(cx, rowY, C_GRID);
+        }
+    }
+}
+
+// Draws the filled bar with its brightened two-pixel cap.
+static void paintBar(int16_t cx, int16_t top, int16_t barH, uint16_t accent) {
+    if (barH <= 0) return;
+    const uint16_t cap = capColor(accent);
+    const uint16_t body = dimColor(accent, GRAPH_BODY_PERCENT);
+    const int16_t capH = (barH >= 3) ? 2 : barH;
+    if (barH > capH) tft.drawFastVLine(cx, top + capH, barH - capH, body);
+    tft.drawFastVLine(cx, top, capH, cap);
+}
+
+void graphDual(int16_t x, int16_t y, int16_t w, int16_t h,
+               const Graph &bars, uint16_t barColor,
+               const Graph &line, uint16_t lineColor,
+               uint8_t fullScale, uint8_t hGridPercent, bool full) {
+    for (int16_t col = 0; col < w; col++) {
+        const uint8_t vb = columnValue(bars, w, col);
+        const uint8_t vl = columnValue(line, w, col);
+
+        if (!full && col > 0) {
+            const uint8_t vbL = columnValue(bars, w, col - 1);
+            const uint8_t vlL = columnValue(line, w, col - 1);
+            // The line segment at a column spans from its left neighbour's row to
+            // its own, so it also changes when that neighbour moved -- hence the
+            // third term, comparing one column further back than the bars need.
+            const uint8_t vlLL = (col > 1) ? columnValue(line, w, col - 2) : GRAPH_NONE;
+            if (vb == vbL && vl == vlL && vlL == vlLL) continue;
+        }
+
+        const int16_t cx = x + col;
+        const int16_t barH = barHeightFor(vb, h, fullScale);
+        paintColumnBackground(cx, y, h, w, col, h - barH, hGridPercent);
+        paintBar(cx, y + h - barH, barH, barColor);
+
+        // Line last, so it stays readable where it crosses the fill.
+        if (vl != GRAPH_NONE) {
+            const int16_t cy = rowFor(vl, y, h, fullScale);
+            const uint8_t vlL = (col > 0) ? columnValue(line, w, col - 1) : GRAPH_NONE;
+            if (vlL != GRAPH_NONE) {
+                const int16_t py = rowFor(vlL, y, h, fullScale);
+                const int16_t top = (cy < py) ? cy : py;
+                const int16_t len = (int16_t)(cy > py ? cy - py : py - cy) + 1;
+                tft.drawFastVLine(cx, top, len, lineColor);
+            } else {
+                tft.drawPixel(cx, cy, lineColor);
+            }
+        }
+    }
+}
+
 void graph(int16_t x, int16_t y, int16_t w, int16_t h, const Graph &g, uint16_t fixed,
-           uint8_t hGridPercent, bool full) {
+           uint8_t hGridPercent, bool full, uint8_t fullScale) {
     for (int16_t col = 0; col < w; col++) {
         const uint8_t v = columnValue(g, w, col);
 
@@ -191,53 +277,15 @@ void graph(int16_t x, int16_t y, int16_t w, int16_t h, const Graph &g, uint16_t 
         if (!full && col > 0 && v == columnValue(g, w, col - 1)) continue;
 
         const int16_t cx = x + col;
+        const int16_t barH = barHeightFor(v, h, fullScale);
 
-        // Static grid, measured back from the right edge so the newest column is
-        // always a division and the lines agree with the time labels below. It
-        // does not move with the data: the bars sliding across a fixed reference
-        // is what makes the motion legible.
-        const bool onGrid = (((w - 1 - col) % GRAPH_GRID_SAMPLES) == 0);
+        paintColumnBackground(cx, y, h, w, col, h - barH, hGridPercent);
 
-        int16_t barH = 0;
-        if (v != GRAPH_NONE) {
-            barH = (int16_t)((int32_t)v * h / 100);
-            if (barH < 1 && v > 0) barH = 1;  // a nonzero reading never vanishes
-            if (barH > h) barH = h;
-        }
-
-        // Background above the bar. A grid column simply uses the grid colour,
-        // so the time grid costs nothing beyond the fill that happens anyway.
-        const int16_t bgH = h - barH;
-        if (bgH > 0) tft.drawFastVLine(cx, y, bgH, onGrid ? C_GRID : C_BG);
-
-        // Horizontal rules live in the background, so repainting a column erases
-        // whatever crossed it -- restore them here, for this column only.
-        // Inclusive of 100: the full-scale rule says where the ceiling is, and is
-        // naturally hidden wherever a bar actually reaches it.
-        if (hGridPercent && h >= GRAPH_HGRID_MIN_H) {
-            for (uint16_t pct = hGridPercent; pct <= 100;
-                 pct = (uint16_t)(pct + hGridPercent)) {
-                const int16_t rowY = y + h - 1 - (int16_t)((int32_t)pct * (h - 1) / 100);
-                if (rowY < y + bgH) tft.drawPixel(cx, rowY, C_GRID);
-            }
-        }
-
-        if (barH > 0) {
-            // The nominal accent becomes the CAP, and the body is dimmed from it.
-            // Doing it the other way round -- body at the accent, cap brightened
-            // -- produces no visible cap at all for a colour already at full
-            // saturation, which is every accent in this palette. Deriving both
-            // ends from one accent also means a new graph colour cannot be added
-            // without its cap working.
-            const uint16_t accent = fixed ? fixed : heatColor(v);
-            const uint16_t cap = capColor(accent);
-            const uint16_t body = dimColor(accent, GRAPH_BODY_PERCENT);
-            const int16_t top = y + bgH;
-
-            const int16_t capH = (barH >= 3) ? 2 : barH;
-            if (barH > capH) tft.drawFastVLine(cx, top + capH, barH - capH, body);
-            tft.drawFastVLine(cx, top, capH, cap);
-        }
+        // The nominal accent becomes the CAP, and the body is dimmed from it.
+        // Doing it the other way round -- body at the accent, cap brightened --
+        // produces no visible cap at all for a colour already at full saturation,
+        // which is every accent in this palette.
+        paintBar(cx, y + h - barH, barH, fixed ? fixed : heatColor(v));
     }
 }
 

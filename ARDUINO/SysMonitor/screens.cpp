@@ -9,7 +9,19 @@ namespace screens {
 namespace {
 
 // --- history --------------------------------------------------------------
-Graph gCpu, gMem, gGpu, gGpuClock, gPower, gNetRx, gNetTx;
+Graph gCpu, gMem, gPower, gNetRx, gNetTx;
+
+// GPU history: power draw and framerate on one shared scale. Stored as units/2,
+// which keeps a sample meaningful whichever scale is active -- storing a
+// percentage of the current scale would silently corrupt every older sample the
+// moment the scale stepped from 200 to 400.
+Graph gGpuPwr, gGpuFps;
+
+// Shared vertical scale for power and framerate, in real units. Semi-fixed: it
+// sits at 200 and steps up to 400 only when something needs the room, so the
+// plot does not rescale under you every time a frame rate wobbles.
+uint16_t gpuScale = 200;
+uint16_t paintedGpuScale = 0;
 
 // Diagnostics timing, collected continuously so the screen is useful the moment
 // it opens rather than starting blank.
@@ -22,7 +34,6 @@ uint32_t paintedMaxDiag = 0xFFFFFFFFul;
 // ceiling would either clip a boosting CPU or squash an idle one flat.
 // 32-bit for the same reason the fields are: a 1 Gbit link peaks around 122070
 // KiB/s, well past what a uint16_t running maximum could hold.
-uint32_t maxGpuClock = 1;
 uint32_t maxNetRx = 1;
 uint32_t maxNetTx = 1;
 uint32_t maxPower = 1;
@@ -55,6 +66,37 @@ uint8_t scaleTo100(int32_t value, uint32_t &runningMax) {
     int32_t pct = value * 100L / (int32_t)runningMax;
     if (pct > 100) pct = 100;
     return (uint8_t)pct;
+}
+
+// Converts a real unit value into the stored byte for the GPU plot.
+uint8_t gpuSample(int32_t units) {
+    if (units == SYSMON_NA || units < 0) return GRAPH_NONE;
+    int32_t half = units / 2;
+    if (half > 254) half = 254;  // 255 is GRAPH_NONE
+    return (uint8_t)half;
+}
+
+// Picks the shared scale from the history actually on screen, not from the latest
+// reading -- a single spike would otherwise rescale the whole plot for one frame
+// and then drop it back.
+//
+// Hysteresis on the way down: it steps up above 200 but only returns below 180.
+// Without that, a value hovering at the boundary flips the scale every tick, and
+// every flip is a full repaint.
+void updateGpuScale() {
+    uint16_t peak = 0;
+    for (uint16_t i = 0; i < gGpuPwr.count(); i++) {
+        const uint8_t v = gGpuPwr.at(i);
+        if (v != GRAPH_NONE && v > peak) peak = v;
+    }
+    for (uint16_t i = 0; i < gGpuFps.count(); i++) {
+        const uint8_t v = gGpuFps.at(i);
+        if (v != GRAPH_NONE && v > peak) peak = v;
+    }
+    const uint16_t peakUnits = (uint16_t)(peak * 2);
+
+    if (peakUnits > 200) gpuScale = 400;
+    else if (peakUnits <= 180) gpuScale = 200;
 }
 
 uint8_t pctOrNone(int v) {
@@ -252,16 +294,36 @@ void liveMem(const SysData &d, bool force) {
 // ===========================================================================
 //  D4  GPU
 // ===========================================================================
-const int16_t kStripY = kTop + 158;
-const int16_t kStripW = 236;
+// The values box is only as tall as its contents need; everything else goes to
+// the plot, which is the part worth looking at over time.
+const int16_t kGpuPanelX = 8;    // graph panel, leaving room for the readouts
+const int16_t kGpuPanelW = 272;  // -> plot is 246 wide after the axis gutter
+const int16_t kGpuPanelY = kTop + 90;
+const int16_t kGpuPanelH = 128;
+const int16_t kGpuReadRight = 312;
+
+// Rules every quarter of full scale: 50 units at the 200 scale, 100 at the 400.
+#define GPU_HGRID_PERCENT 25
 
 void staticGpu() {
-    ui::box(4, kTop + 4, 312, 148, F("gpu"));
-    ui::label(170, kTop + 18, F("clock"));
-    ui::label(170, kTop + 32, F("temp"));
-    ui::label(170, kTop + 46, F("vram"));
-    ui::label(170, kTop + 76, F("framerate"));
-    ui::box(4, kStripY - 8, 312, 62, F("usage / clock"));
+    ui::box(4, kTop + 4, 312, 82, F("gpu"));
+    ui::label(158, kTop + 16, F("clock"));
+    ui::label(158, kTop + 30, F("temp"));
+    ui::label(158, kTop + 44, F("power"));
+    ui::label(158, kTop + 58, F("vram"));
+
+    ui::box(4, kGpuPanelY - 6, 312, kGpuPanelH + 12, F("power / framerate"));
+}
+
+// Three digits and a unit letter, right-aligned so the two readouts stack into a
+// column: " 44W", "175f". n/a becomes "--" rather than a misleading zero.
+void unitValue(char *buf, uint8_t len, int value, char unit) {
+    if (value == SYSMON_NA) {
+        snprintf(buf, len, " --%c", unit);
+        return;
+    }
+    if (value > 999) value = 999;
+    snprintf(buf, len, "%3d%c", value, unit);
 }
 
 void liveGpu(const SysData &d, bool force) {
@@ -269,51 +331,69 @@ void liveGpu(const SysData &d, bool force) {
 
     if (force || painted.gpuUsage != d.gpuUsage) {
         ui::formatValue(buf, sizeof(buf), d.gpuUsage, "");
-        tft.fillRect(14, kTop + 16, 116, 40, C_BG);
-        ui::bigNumber(14, kTop + 16, buf, heatColor(d.gpuUsage), "%", 5);
-    }
-    if (force || painted.gpuPower != d.gpuPower) {
-        ui::formatTenths(buf, sizeof(buf), d.gpuPower, "");
-        tft.fillRect(14, kTop + 66, 120, 24, C_BG);
-        ui::bigNumber(14, kTop + 66, buf, C_PWR, "W", 3);
+        tft.fillRect(12, kTop + 14, 120, 40, C_BG);
+        ui::bigNumber(12, kTop + 14, buf, heatColor(d.gpuUsage), "%", 5);
     }
     if (force || painted.gpuClock != d.gpuClock) {
         ui::formatValue(buf, sizeof(buf), d.gpuClock, " MHz");
-        ui::valueField(306, kTop + 18, 96, buf, C_GPU_FREQ);
+        ui::valueField(306, kTop + 16, 100, buf, C_GPU_FREQ);
     }
     if (force || painted.gpuTemp != d.gpuTemp) {
         tempText(buf, sizeof(buf), d.gpuTemp);
-        ui::valueField(306, kTop + 32, 96, buf, tempColor(d.gpuTemp));
+        ui::valueField(306, kTop + 30, 100, buf, tempColor(d.gpuTemp));
+    }
+    if (force || painted.gpuPower != d.gpuPower) {
+        ui::formatTenths(buf, sizeof(buf), d.gpuPower, " W");
+        ui::valueField(306, kTop + 44, 100, buf, C_PWR);
     }
     if (force || painted.vramUsed != d.vramUsed || painted.vramTotal != d.vramTotal) {
         pairText(buf, sizeof(buf), d.vramUsed, d.vramTotal);
-        ui::valueField(306, kTop + 46, 96, buf, C_TEXT);
-        ui::meter(170, kTop + 58, 136, 9, vramPercent(d));
+        ui::valueField(306, kTop + 58, 100, buf, C_TEXT);
+    }
+    // VRAM meter sits under the headline number, using space the big digits
+    // leave empty rather than taking a row of its own.
+    if (force || painted.vramUsed != d.vramUsed || painted.vramTotal != d.vramTotal) {
+        ui::meter(12, kTop + 60, 132, 10, vramPercent(d));
     }
     if (force || painted.fps != d.fps) {
         // Framerate only means something while something is presenting frames, so
         // an absent value says "idle" rather than showing 0 fps.
-        tft.fillRect(230, kTop + 70, 80, 18, C_BG);
+        tft.fillRect(12, kTop + 74, 132, 9, C_BG);
+        ui::label(12, kTop + 74, F("fps"), C_LABEL);
         if (d.fps == SYSMON_NA) {
-            ui::valueRight(306, kTop + 76, "idle", C_DIM, 1);
+            ui::valueRight(144, kTop + 74, "idle", C_DIM, 1);
         } else {
             ui::formatValue(buf, sizeof(buf), d.fps, "");
-            ui::valueRight(288, kTop + 72, buf, C_LOW, 2);
-            ui::label(290, kTop + 79, F("fps"), C_DIM);
+            ui::valueRight(144, kTop + 74, buf, C_FPS, 1);
         }
     }
 
-    if (force || paintedEpoch != graphEpoch) {
-        ui::graph(GRAPH_FULL_X, kStripY, kStripW, 20, gGpu, C_GPU, 0, force);
-        ui::graphLine(GRAPH_FULL_X, kStripY + 24, kStripW, 20, gGpuClock, C_GPU_FREQ);
+    // --- the combined plot -------------------------------------------------
+    const bool scaleMoved = (paintedGpuScale != gpuScale);
+
+    if (force || scaleMoved || paintedEpoch != graphEpoch) {
+        // Samples are stored as units/2, so the stored history stays valid across
+        // a scale change -- only the divisor moves.
+        ui::graphDual(kGpuPanelX + GRAPH_AXIS_W, kGpuPanelY,
+                      kGpuPanelW - GRAPH_AXIS_W, kGpuPanelH - GRAPH_AXIS_H,
+                      gGpuPwr, C_PWR, gGpuFps, C_FPS,
+                      (uint8_t)(gpuScale / 2), GPU_HGRID_PERCENT,
+                      force || scaleMoved);
     }
-    if (force || painted.gpuUsage != d.gpuUsage) {
-        ui::formatValue(buf, sizeof(buf), d.gpuUsage, "%");
-        ui::valueField(308, kStripY + 6, 56, buf, C_GPU);
+    if (force || scaleMoved) {
+        ui::graphAxes(kGpuPanelX, kGpuPanelY, kGpuPanelW, kGpuPanelH, gpuScale, "");
+        paintedGpuScale = gpuScale;
     }
-    if (force || painted.gpuClock != d.gpuClock) {
-        ui::formatValue(buf, sizeof(buf), d.gpuClock, "");
-        ui::valueField(308, kStripY + 30, 56, buf, C_GPU_FREQ);
+
+    // Readouts to the right of the plot, each in its series' colour.
+    if (force || painted.gpuPower != d.gpuPower) {
+        unitValue(buf, sizeof(buf), d.gpuPower == SYSMON_NA ? SYSMON_NA : d.gpuPower / 10,
+                  'W');
+        ui::valueField(kGpuReadRight, kGpuPanelY + 6, 30, buf, C_PWR);
+    }
+    if (force || painted.fps != d.fps) {
+        unitValue(buf, sizeof(buf), d.fps, 'f');
+        ui::valueField(kGpuReadRight, kGpuPanelY + 20, 30, buf, C_FPS);
     }
 }
 
@@ -573,15 +653,16 @@ void recordDiag(uint16_t maxLen, uint8_t count) {
 void resetHistory() {
     gCpu.reset();
     gMem.reset();
-    gGpu.reset();
-    gGpuClock.reset();
+    gGpuPwr.reset();
+    gGpuFps.reset();
     gPower.reset();
     gNetRx.reset();
     gNetTx.reset();
-    maxGpuClock = 1;
     maxNetRx = 1;
     maxNetTx = 1;
     maxPower = 1;
+    gpuScale = 200;
+    paintedGpuScale = 0;
     graphEpoch++;
 }
 
@@ -593,6 +674,7 @@ void invalidate() {
     paintedMaxRx = 0xFFFFFFFFul;
     paintedMaxTx = 0xFFFFFFFFul;
     paintedMaxDiag = 0xFFFFFFFFul;
+    paintedGpuScale = 0;
 }
 
 // Advances history by exactly one sample. Driven by the render clock, not by
@@ -615,10 +697,13 @@ void record(uint8_t id, const SysData &d) {
             break;
         }
         case SCR_GPU:
-            gGpu.push(pctOrNone(d.gpuUsage));
-            gGpuClock.push(d.gpuClock == SYSMON_NA
-                               ? GRAPH_NONE
-                               : scaleTo100(d.gpuClock, maxGpuClock));
+            // Stored as units/2: one byte covers 0..508, comfortably past the
+            // 400 ceiling, at 2-unit resolution -- about a pixel on a 117 px
+            // plot, so nothing visible is lost.
+            gGpuPwr.push(gpuSample(d.gpuPower == SYSMON_NA ? SYSMON_NA
+                                                           : d.gpuPower / 10));
+            gGpuFps.push(gpuSample(d.fps));
+            updateGpuScale();
             break;
         case SCR_POWER:
             gPower.push(d.pwrTotal == SYSMON_NA ? GRAPH_NONE

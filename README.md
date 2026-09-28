@@ -1,4 +1,4 @@
-# Multi Screen System Monitor
+| 4 | GPU | usage, clock, temp, power, VRAM; combined power + framerate history |# Multi Screen System Monitor
 
 A hardware system monitor. A Windows agent collects telemetry and sends it to an
 **Arduino MEGA** driving a **320×240 SSD1289 TFT**, which displays it across
