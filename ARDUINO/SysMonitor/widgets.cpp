@@ -156,25 +156,47 @@ void meterV(int16_t x, int16_t y, int16_t w, int16_t h, int percent, uint16_t fi
 // pixels twice with the background visible in between, and on a panel this slow
 // that reads as a distinct flash on every refresh. Redrawing a 300x118 graph is
 // ~35k pixels; doing it twice is what you were seeing blink.
-void graph(int16_t x, int16_t y, int16_t w, int16_t h, const Graph &g, uint16_t fixed) {
+// The value shown at a plot column, or GRAPH_NONE where the plot is still empty.
+static uint8_t columnValue(const Graph &g, int16_t w, int16_t col) {
     const uint16_t n = g.count();
-
     // Right-align: newest sample at the right edge, older data scrolling off to
     // the left, which is the direction btop scrolls.
     const int16_t first = (int16_t)w - (int16_t)n;
+    const int16_t idx = col - first;
+    if (idx < 0 || idx >= (int16_t)n) return GRAPH_NONE;
+    return g.at((uint16_t)idx);
+}
 
+void graph(int16_t x, int16_t y, int16_t w, int16_t h, const Graph &g, uint16_t fixed,
+           uint8_t hGridPercent, bool full) {
     for (int16_t col = 0; col < w; col++) {
+        const uint8_t v = columnValue(g, w, col);
+
+        // --- skip columns whose content did not actually change -------------
+        //
+        // History advances exactly one sample per render tick, so the plot
+        // scrolls left by exactly one pixel: column c now shows what column c+1
+        // showed before. Rearranged, column c is unchanged whenever its value
+        // equals its LEFT neighbour's -- because that neighbour is what used to
+        // be here.
+        //
+        // So only the edges in the waveform need repainting. An idle graph costs
+        // a couple of columns per tick instead of 276, and the grid behind the
+        // untouched ones is left alone rather than repainted identically.
+        //
+        // Valid only when one push happened since the last draw and neither the
+        // geometry nor the scale moved; callers pass full = true otherwise.
+        // Column 0 always repaints -- what used to be there has scrolled off, so
+        // there is nothing left to compare against.
+        if (!full && col > 0 && v == columnValue(g, w, col - 1)) continue;
+
         const int16_t cx = x + col;
-        const int16_t idx = col - first;
 
         // Static grid, measured back from the right edge so the newest column is
         // always a division and the lines agree with the time labels below. It
         // does not move with the data: the bars sliding across a fixed reference
         // is what makes the motion legible.
         const bool onGrid = (((w - 1 - col) % GRAPH_GRID_SAMPLES) == 0);
-
-        uint8_t v = GRAPH_NONE;
-        if (idx >= 0 && idx < (int16_t)n) v = g.at((uint16_t)idx);
 
         int16_t barH = 0;
         if (v != GRAPH_NONE) {
@@ -187,6 +209,18 @@ void graph(int16_t x, int16_t y, int16_t w, int16_t h, const Graph &g, uint16_t 
         // so the time grid costs nothing beyond the fill that happens anyway.
         const int16_t bgH = h - barH;
         if (bgH > 0) tft.drawFastVLine(cx, y, bgH, onGrid ? C_GRID : C_BG);
+
+        // Horizontal rules live in the background, so repainting a column erases
+        // whatever crossed it -- restore them here, for this column only.
+        // Inclusive of 100: the full-scale rule says where the ceiling is, and is
+        // naturally hidden wherever a bar actually reaches it.
+        if (hGridPercent && h >= GRAPH_HGRID_MIN_H) {
+            for (uint16_t pct = hGridPercent; pct <= 100;
+                 pct = (uint16_t)(pct + hGridPercent)) {
+                const int16_t rowY = y + h - 1 - (int16_t)((int32_t)pct * (h - 1) / 100);
+                if (rowY < y + bgH) tft.drawPixel(cx, rowY, C_GRID);
+            }
+        }
 
         if (barH > 0) {
             // The nominal accent becomes the CAP, and the body is dimmed from it.
@@ -207,64 +241,17 @@ void graph(int16_t x, int16_t y, int16_t w, int16_t h, const Graph &g, uint16_t 
     }
 }
 
-// Horizontal rules at fixed fractions of full scale, drawn after the bars and
-// only across the exposed background above them.
-//
-// Emitted as runs rather than per pixel: a rule crossing a 276 px plot would
-// otherwise be 276 separate one-pixel writes, each paying a full address-window
-// setup. Runs collapse that to a handful of spans, which is the difference
-// between ~14 ms and well under 1 ms per rule.
-static void horizontalRules(int16_t x, int16_t y, int16_t w, int16_t h,
-                            const Graph &g, uint8_t stepPercent) {
-    if (stepPercent == 0 || h < GRAPH_HGRID_MIN_H) return;
-
-    const uint16_t n = g.count();
-    const int16_t first = (int16_t)w - (int16_t)n;
-
-    // Inclusive of 100: the full-scale rule is the one that says where the
-    // ceiling is, and without it a graph pinned near the top has no reference.
-    // It lands on the plot.s top row, and is naturally hidden wherever a bar
-    // actually reaches full height.
-    for (uint16_t pct = stepPercent; pct <= 100; pct = (uint16_t)(pct + stepPercent)) {
-        const int16_t rowY = y + h - 1 - (int16_t)((int32_t)pct * (h - 1) / 100);
-        int16_t runStart = -1;
-
-        // One extra iteration so a run reaching the right edge still gets closed.
-        for (int16_t col = 0; col <= w; col++) {
-            bool exposed = false;
-            if (col < w) {
-                const int16_t idx = col - first;
-                uint8_t v = GRAPH_NONE;
-                if (idx >= 0 && idx < (int16_t)n) v = g.at((uint16_t)idx);
-
-                int16_t barH = 0;
-                if (v != GRAPH_NONE) {
-                    barH = (int16_t)((int32_t)v * h / 100);
-                    if (barH < 1 && v > 0) barH = 1;
-                    if (barH > h) barH = h;
-                }
-                exposed = (rowY < y + h - barH);
-            }
-
-            if (exposed) {
-                if (runStart < 0) runStart = col;
-            } else if (runStart >= 0) {
-                tft.drawFastHLine(x + runStart, rowY, col - runStart, C_GRID);
-                runStart = -1;
-            }
-        }
-    }
-}
-
+// The separate run-based horizontalRules() pass is gone. It had to run over the
+// whole plot to know where bars ended, which defeats a partial repaint; drawing
+// each rule inside the column that erased it is both cheaper and correct.
 void graphPlot(int16_t x, int16_t y, int16_t w, int16_t h, const Graph &g,
-               uint16_t fixed, uint8_t hGridPercent) {
+               uint16_t fixed, uint8_t hGridPercent, bool full) {
     const int16_t px = x + GRAPH_AXIS_W;
     const int16_t pw = w - GRAPH_AXIS_W;
     const int16_t ph = h - GRAPH_AXIS_H;
     if (pw <= 0 || ph <= 0) return;
 
-    graph(px, y, pw, ph, g, fixed);
-    horizontalRules(px, y, pw, ph, g, hGridPercent);
+    graph(px, y, pw, ph, g, fixed, hGridPercent, full);
 }
 
 void graphAxes(int16_t x, int16_t y, int16_t w, int16_t h, uint32_t topValue,

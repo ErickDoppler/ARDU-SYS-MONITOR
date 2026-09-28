@@ -92,6 +92,9 @@ returns.
 | 6 | NETWORK | up/down rates, session totals, link speed |
 | 7 | PROCESSES | CPU strip plus the top 12 by CPU and memory |
 
+A screen held for a minute is saved to EEPROM and restored at the next power-up,
+so the panel comes back where you left it.
+
 ---
 
 ## What it can and cannot measure

@@ -146,7 +146,7 @@ void liveCpu(const SysData &d, bool force) {
         ui::valueField(306, kTop + 54, 96, buf, C_DIM);
     }
     if (force || paintedEpoch != graphEpoch) {
-        ui::graphPlot(8, kTop + 96, 302, 118, gCpu, 0, 20);
+        ui::graphPlot(8, kTop + 96, 302, 118, gCpu, 0, 20, force);
     }
 }
 
@@ -245,7 +245,7 @@ void liveMem(const SysData &d, bool force) {
         ui::valueField(306, kTop + 54, 96, buf, C_DIM);
     }
     if (force || paintedEpoch != graphEpoch) {
-        ui::graphPlot(8, kTop + 96, 302, 118, gMem, C_MEM, 20);
+        ui::graphPlot(8, kTop + 96, 302, 118, gMem, C_MEM, 20, force);
     }
 }
 
@@ -304,7 +304,7 @@ void liveGpu(const SysData &d, bool force) {
     }
 
     if (force || paintedEpoch != graphEpoch) {
-        ui::graph(GRAPH_FULL_X, kStripY, kStripW, 20, gGpu, C_GPU);
+        ui::graph(GRAPH_FULL_X, kStripY, kStripW, 20, gGpu, C_GPU, 0, force);
         ui::graphLine(GRAPH_FULL_X, kStripY + 24, kStripW, 20, gGpuClock, C_GPU_FREQ);
     }
     if (force || painted.gpuUsage != d.gpuUsage) {
@@ -349,7 +349,8 @@ void livePower(const SysData &d, bool force) {
         ui::valueField(306, kTop + 52, 76, buf, C_DIM);
     }
     if (force || paintedEpoch != graphEpoch) {
-        ui::graphPlot(8, kTop + 96, 302, 118, gPower, C_PWR, 0);
+        ui::graphPlot(8, kTop + 96, 302, 118, gPower, C_PWR, 0,
+                      force || paintedMaxPower != maxPower);
     }
     // Auto-scaled, so the axis carries the peak instead of a separate label --
     // and is repainted only when that peak actually moves, not every tick.
@@ -401,8 +402,10 @@ void liveNet(const SysData &d, bool force) {
     if (force || paintedEpoch != graphEpoch) {
         // Both auto-scaled, and each keeps its own maximum: a 1 KiB/s upstream
         // should not be flattened by a 100 MiB/s download sharing one scale.
-        ui::graphPlot(8, kTop + 70, 302, 66, gNetRx, C_NET_RX, 0);
-        ui::graphPlot(8, kTop + 154, 302, 66, gNetTx, C_NET_TX, 0);
+        ui::graphPlot(8, kTop + 70, 302, 66, gNetRx, C_NET_RX, 0,
+                      force || paintedMaxRx != maxNetRx);
+        ui::graphPlot(8, kTop + 154, 302, 66, gNetTx, C_NET_TX, 0,
+                      force || paintedMaxTx != maxNetTx);
     }
     // The axis gutter is four characters wide, and a saturated 1 Gbit link peaks
     // near 122070 KiB/s -- so switch to MiB/s once the numbers stop fitting
@@ -444,7 +447,7 @@ void liveProc(const SysData &d, bool force) {
     char buf[12];
 
     if (force || paintedEpoch != graphEpoch) {
-        ui::graph(GRAPH_FULL_X, kTop + 8, GRAPH_FULL_W, 30, gCpu);
+        ui::graph(GRAPH_FULL_X, kTop + 8, GRAPH_FULL_W, 30, gCpu, 0, 0, force);
     }
     if (force || painted.procCpu != d.procCpu) {
         ui::formatValue(buf, sizeof(buf), d.procCpu, "%");
@@ -532,7 +535,8 @@ void liveDiag(const SysData &d, bool force) {
 
     // Timing graph: one bucket per second, height = longest message in it.
     if (force || paintedEpoch != graphEpoch) {
-        ui::graphPlot(8, kTop + 54, 302, 66, gDiag, C_CPU, 0);
+        ui::graphPlot(8, kTop + 54, 302, 66, gDiag, C_CPU, 0,
+                      force || paintedMaxDiag != maxDiagLen);
     }
     if (force || paintedMaxDiag != maxDiagLen) {
         ui::graphAxes(8, kTop + 54, 302, 66, maxDiagLen, "B");

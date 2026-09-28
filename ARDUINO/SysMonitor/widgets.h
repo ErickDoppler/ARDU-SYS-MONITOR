@@ -130,8 +130,10 @@ void meterV(int16_t x, int16_t y, int16_t w, int16_t h, int percent,
 // Filled area graph, newest sample at the right. Colours each column by its own
 // value, which is what gives btop's graphs their gradient, and caps each bar with
 // two pixels of a brightened shade so the surface of the plot stays legible.
+// `full` forces every column; leave it false for the per-tick update, where only
+// the columns whose value differs from their left neighbour have changed.
 void graph(int16_t x, int16_t y, int16_t w, int16_t h, const Graph &g,
-           uint16_t fixed = 0);
+           uint16_t fixed = 0, uint8_t hGridPercent = 0, bool full = true);
 
 // A graph panel is drawn in two halves, for the same reason the screens are:
 // its scale does not change from one second to the next, and repainting text
@@ -156,8 +158,11 @@ void graphAxes(int16_t x, int16_t y, int16_t w, int16_t h, uint32_t topValue,
 
 // `hGridPercent` adds horizontal rules every N percent of full scale (20 for a
 // utilisation graph, 0 for none). Ignored on plots too short to carry them.
+// `full` repaints every column. Pass it on the first draw after a layout change
+// or when an auto-scaled maximum moved -- both change every bar, so the
+// neighbour comparison no longer describes what is on screen.
 void graphPlot(int16_t x, int16_t y, int16_t w, int16_t h, const Graph &g,
-               uint16_t fixed, uint8_t hGridPercent = 0);
+               uint16_t fixed, uint8_t hGridPercent = 0, bool full = false);
 
 // Shortest plot that can carry horizontal rules without them merging together.
 #define GRAPH_HGRID_MIN_H 40

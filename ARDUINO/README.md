@@ -89,6 +89,9 @@ Tap anywhere to advance.
 | 6 | NETWORK | up/down rates, session totals, link speed, two graphs |
 | 7 | PROCESSES | 30 px CPU strip plus the top 12 by CPU, with memory |
 
+The screen you settle on for a minute is remembered and restored at the next
+power-up.
+
 **Diagnostics — hold for 3 seconds.** Shows accepted/rejected frame counts, last
 frame size, age since the last frame, a 1-second-per-bucket timing graph, and the
 last six raw lines from the host. A **short tap after 2 seconds** returns.
@@ -114,6 +117,39 @@ History lives on the device in ring buffers and advances **one sample per render
 tick**, not per arrival. So the horizontal axis is honest: **1 px = 1 s**, and a
 276 px plot spans about 4.5 minutes. Pushing on arrival instead made a burst of
 three frames jump the plot three pixels at once while a stalled link froze it.
+
+### Only changed columns are repainted
+
+That one-sample-per-tick rule has a useful consequence. The plot scrolls left by
+exactly one pixel, so column *c* now shows what column *c+1* showed before —
+which rearranges to: **column *c* is unchanged whenever its value equals its left
+neighbour's**, because that neighbour is what used to be there.
+
+So a refresh repaints only the *edges* in the waveform. An idle graph costs a
+couple of columns instead of 276, and the grid behind untouched columns is left
+alone rather than repainted identically. It needs no cached framebuffer — the
+comparison comes straight out of the ring buffer.
+
+The comparison only describes the screen when exactly one sample was pushed and
+neither geometry nor scale moved, so callers pass `full` after a layout change or
+when an auto-scaled maximum moves — both change every bar at once.
+
+### Screen persistence
+
+A screen that stays on show for **one minute** is written to EEPROM, and restored
+at boot. The delay is the point: without it every screen you page *past* on the
+way to the one you want would be written, and the panel would come back on
+whichever you happened to pass through last.
+
+EEPROM endurance shapes the rest — the cells are rated for ~100,000 writes, so
+nothing is written until the minute is up, nothing is written if the stored value
+already matches, and `EEPROM.update()` skips bytes that have not changed. Worst
+case is deliberately alternating two screens on the minute: 60 writes an hour,
+which the rating covers for about 190 years.
+
+The record is magic byte + value + checksum, not a bare byte. A blank AVR EEPROM
+reads `0xFF` everywhere and a chip that previously ran other firmware holds
+whatever that left; either could otherwise be read back as a plausible screen id.
 
 Only the screen on show advances its history. Data for other screens is not being
 received, so pushing their last known value once a second would draw a confident
@@ -177,6 +213,7 @@ SysMonitor/
   widgets.h/.cpp     boxes, meters, graphs, axes, formatters
   screens.h/.cpp     the seven screens plus diagnostics
   link.h/.cpp        wire protocol client and the double-buffered store
+  persist.h          remembers the settled screen in EEPROM
   sysmon_wire.h      the shared contract -- do not edit here, see ../../SHARED
 ```
 

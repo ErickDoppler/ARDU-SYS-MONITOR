@@ -44,6 +44,7 @@
 #warning "SERIAL_RX_BUFFER_SIZE < 256: frames may be dropped during redraws. Build with tools\\upload.ps1 for -DSERIAL_RX_BUFFER_SIZE=512."
 #endif
 
+#include "persist.h"
 #include "screens.h"
 #include "theme.h"
 #include "TftSSD1289.h"
@@ -68,6 +69,12 @@ static unsigned long diagEnteredMs = 0;
 // dismisses it.
 static const unsigned long kDiagTapGuardMs = 2000;
 
+// When the current screen was selected, and whether this dwell has already been
+// written to EEPROM. Together these are what limit persistence to one write per
+// settled screen rather than one per tap -- see persist.h on cell endurance.
+static unsigned long screenSinceMs = 0;
+static bool screenPersisted = false;
+
 // The render clock. Fixed and independent of arrivals, so the panel updates in
 // tempo whether the agent is early, late or bursty. History advances one sample
 // per tick, so this is also the horizontal scale of every graph: 1 px = 1 s, and
@@ -85,6 +92,11 @@ static void gotoScreen(uint8_t screen) {
     currentScreen = screen;
     link.request(currentScreen);  // the desktop answers at once
     layoutDirty = true;
+
+    // Restart the dwell clock: only a screen you settle on gets remembered,
+    // not every one you page past on the way to it.
+    screenSinceMs = millis();
+    screenPersisted = false;
 
     Serial.print(F("# screen "));
     Serial.println(currentScreen);
@@ -117,11 +129,26 @@ void setup() {
     Serial.println();
     Serial.println(F("# ARDU-SYS-MONITOR display firmware"));
 
+    // Come back on whichever screen was last settled on. Falls through to the
+    // CPU screen when the EEPROM is blank, holds a foreign value, or was written
+    // by a build with a different set of screens.
+    const uint8_t saved = persistLoadScreen();
+    if (saved) {
+        currentScreen = saved;
+        Serial.print(F("# restored screen "));
+        Serial.println(currentScreen);
+    }
+
     screens::resetHistory();
     splash();
 
     link.requestHello();
     link.request(currentScreen);
+
+    // The restored screen is already what is stored, so starting the dwell clock
+    // here costs nothing: persistSaveScreen() will find it unchanged and skip.
+    screenSinceMs = millis();
+    screenPersisted = false;
 
     // Hold the splash for one render period rather than clearing it instantly,
     // so it is readable on a cold start.
@@ -171,6 +198,18 @@ void loop() {
     }
 
     link.tick(currentScreen);
+
+    // --- remember a settled screen -----------------------------------------
+    // Unsigned subtraction, so this still behaves when millis() wraps at ~49
+    // days. The write blocks for a few milliseconds, but interrupts stay live
+    // throughout, so the serial receive buffer keeps filling meanwhile.
+    if (!screenPersisted && (millis() - screenSinceMs) >= PERSIST_DWELL_MS) {
+        screenPersisted = true;  // set first: one attempt per dwell either way
+        if (persistSaveScreen(currentScreen)) {
+            Serial.print(F("# saved screen "));
+            Serial.println(currentScreen);
+        }
+    }
 
     // --- render: strictly on its own 2 s clock ------------------------------
     const unsigned long now = millis();
