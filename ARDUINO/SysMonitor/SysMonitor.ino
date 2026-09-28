@@ -19,10 +19,10 @@
 //              the fields whose values moved. It never waits for data, and it
 //              never paints a half-parsed frame.
 //
-//  Drivers are the ones proven in ARDU-DISPLAY-UNIT. Note TFT_WR_NOPS in
-//  board_config.h: this panel needs a much wider write strobe than its datasheet
-//  claims, and a too-short one shows up as a blank white screen rather than as
-//  anything obviously timing related.
+//  Note TFT_WR_NOPS in board_config.h: this panel needs a much wider write
+//  strobe than its datasheet claims, and a too-short one shows up as a blank
+//  white screen rather than as anything obviously timing related. See
+//  ARDUINO/README.md for the measurements.
 //
 //  Build:  tools\upload.ps1   (or the Arduino IDE, board = Arduino Mega, 1280)
 // ===========================================================================

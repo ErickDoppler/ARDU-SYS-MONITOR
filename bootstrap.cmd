@@ -14,8 +14,9 @@ rem  Uses only curl.exe and tar.exe, both shipped with Windows 10 1803 and later
 rem ===========================================================================
 rem NOTE: deliberately NO "setlocal enabledelayedexpansion". With it enabled cmd
 rem treats ! as a variable reference, so any path containing one -- and this
-rem project lives under !ARDUINO -- silently expands to nothing. A :confirm
-rem subroutine is used instead of reading !REPLY! inside a block.
+rem path containing one silently expands to nothing. A :confirm subroutine is
+rem used instead of reading a variable inside a block. This is not theoretical:
+rem it was found because the project first lived under a folder named !ARDUINO.
 setlocal
 
 set "ROOT=%~dp0"

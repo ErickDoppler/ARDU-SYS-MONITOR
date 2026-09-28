@@ -17,9 +17,10 @@ rem      4. the Arduino IDE 2 installation, for arduino-cli
 rem
 rem  NOTE: deliberately NO "setlocal enabledelayedexpansion". With it enabled cmd
 rem  treats ! as a variable reference, so any path containing one -- and this
-rem  project lives under !ARDUINO -- silently expands to nothing and every path
-rem  in the script breaks. Subroutines are used instead of !var! where a value
-rem  has to be read inside a block.
+rem  path containing one silently expands to nothing and every path in the
+rem  script breaks. Subroutines are used instead of delayed expansion where a
+rem  value has to be read inside a block. This is not theoretical: it was found
+rem  because the project first lived under a folder named !ARDUINO.
 rem ===========================================================================
 setlocal
 

@@ -1,86 +1,79 @@
 # ---------------------------------------------------------------------------
-#  Builds the desktop agent with the w64devkit toolchain in C:\workenv.
+#  Builds the desktop agent. A convenience wrapper for people who live in
+#  PowerShell -- ..\..\build.cmd and ..\..\build.sh do the same thing.
 #
-#    .\tools\build.ps1              # configure if needed, then build
-#    .\tools\build.ps1 -Clean       # throw the build directory away first
-#    .\tools\build.ps1 -Run         # build, then launch (UAC will prompt)
+#    .\tools\build.ps1            build
+#    .\tools\build.ps1 -Clean     wipe build\ first
+#    .\tools\build.ps1 -Run       build, then launch (Windows prompts for UAC)
+#    .\tools\build.ps1 -SelfTest  build the console sensor harness instead
 #
-#  Two stages, because resources/app.rc embeds appicon.ico and therefore cannot
-#  be the thing that generates it: a small bootstrap linking only IconFactory
-#  writes the .ico first, then CMake builds the app.
+#  Drives the Makefile rather than CMake. w64devkit already ships make, so this
+#  needs no other tool -- an earlier version pinned a specific CMake and Ninja
+#  install path, which worked on exactly one machine.
+#
+#  The compiler is looked for on PATH first, then in the repo's .toolchain\
+#  (created by bootstrap.cmd), then in C:\workenv\ -- so an existing setup is
+#  always preferred over anything this project downloaded.
 # ---------------------------------------------------------------------------
 
 param(
     [switch]$Clean,
     [switch]$Run,
-    [string]$Config = "Release"
+    [switch]$SelfTest
 )
 
 $ErrorActionPreference = "Stop"
 
-$root  = Split-Path -Parent $PSScriptRoot
-$build = Join-Path $root "build"
+$desktop = Split-Path -Parent $PSScriptRoot
+$repo    = Split-Path -Parent $desktop
 
-$devkit = "C:\workenv\w64devkit\bin"
-$cmake  = "C:\workenv\cmake-4.4.3-windows-x86_64\bin\cmake.exe"
-$ninja  = "C:\workenv\ninja\ninja.exe"
+# --- locate a compiler -----------------------------------------------------
+$candidates = @(
+    (Join-Path $repo ".toolchain\w64devkit\bin"),
+    "C:\workenv\w64devkit\bin"
+)
 
-foreach ($p in @($devkit, $cmake, $ninja)) {
-    if (-not (Test-Path $p)) {
-        Write-Host "Missing toolchain component: $p" -ForegroundColor Red
-        exit 1
+$haveGxx = $null -ne (Get-Command g++ -ErrorAction SilentlyContinue)
+if (-not $haveGxx) {
+    foreach ($dir in $candidates) {
+        if (Test-Path (Join-Path $dir "g++.exe")) {
+            $env:PATH = "$dir;$env:PATH"
+            $haveGxx = $true
+            break
+        }
     }
 }
 
-# Put the devkit first so CMake finds this gcc rather than anything else on PATH.
-$env:PATH = "$devkit;$env:PATH"
-
-if ($Clean -and (Test-Path $build)) {
-    Write-Host "Removing $build" -ForegroundColor Yellow
-    Remove-Item -Recurse -Force $build
+if (-not $haveGxx) {
+    Write-Host "No C++ compiler found." -ForegroundColor Red
+    Write-Host "Run bootstrap.cmd in the repository root, or put g++ on PATH."
+    exit 1
 }
 
-# --- stage 1: the icon ------------------------------------------------------
-$ico        = Join-Path $root "resources\appicon.ico"
-$iconSource = Join-Path $root "src\IconFactory.cpp"
-$needIcon   = -not (Test-Path $ico)
-if (-not $needIcon) {
-    $needIcon = (Get-Item $iconSource).LastWriteTime -gt (Get-Item $ico).LastWriteTime
+$make = Get-Command make -ErrorAction SilentlyContinue
+if (-not $make) {
+    Write-Host "make not found. It ships with w64devkit; check your PATH." -ForegroundColor Red
+    exit 1
 }
 
-if ($needIcon) {
-    Write-Host "Generating appicon.ico" -ForegroundColor Cyan
-    $tmp = Join-Path $env:TEMP "sysmon-mkicon.exe"
-    & "$devkit\g++.exe" -std=c++20 -O2 -municode `
-        (Join-Path $root "tools\mkicon.cpp") `
-        (Join-Path $root "src\IconFactory.cpp") `
-        -o $tmp -lgdi32 -luser32
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+# --- build -----------------------------------------------------------------
+Push-Location $desktop
+try {
+    if ($Clean) {
+        Write-Host "Cleaning" -ForegroundColor Yellow
+        & make clean
+    }
 
-    & $tmp $ico
-    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    Remove-Item $tmp -Force -ErrorAction SilentlyContinue
-} else {
-    Write-Host "appicon.ico is up to date" -ForegroundColor DarkGray
-}
-
-# --- stage 2: the app -------------------------------------------------------
-if (-not (Test-Path (Join-Path $build "build.ninja"))) {
-    Write-Host "Configuring" -ForegroundColor Cyan
-    & $cmake -S $root -B $build -G Ninja `
-        "-DCMAKE_MAKE_PROGRAM=$ninja" `
-        "-DCMAKE_BUILD_TYPE=$Config" `
-        "-DCMAKE_C_COMPILER=$devkit\gcc.exe" `
-        "-DCMAKE_CXX_COMPILER=$devkit\g++.exe" `
-        "-DCMAKE_RC_COMPILER=$devkit\windres.exe"
+    $target = if ($SelfTest) { "selftest" } else { "all" }
+    Write-Host "Building ($target)" -ForegroundColor Cyan
+    & make $target
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
+finally {
+    Pop-Location
+}
 
-Write-Host "Building" -ForegroundColor Cyan
-& $cmake --build $build
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-$exe = Join-Path $build "sysmon.exe"
+$exe = Join-Path $desktop "build\sysmon.exe"
 Write-Host "Built $exe" -ForegroundColor Green
 
 if ($Run) {

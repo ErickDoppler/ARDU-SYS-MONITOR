@@ -186,8 +186,8 @@ SysMonitor/
 
 Calibration was recovered from the original ITDB02_Touch library rather than
 guessed: raw values sweep **411–3718** on the X channel and **378–3901** on Y.
-Demo screen 9 in the old display-unit project shows live raw values if you need
-to retune for a different panel.
+If you need to retune for a different panel, the raw 12-bit pair is available
+from `touch.rawX()` / `touch.rawY()` — print it and press the four corners.
 
 Three things about this panel are easy to get subtly wrong, and none fail
 loudly — they just make touch feel rotated or offset:

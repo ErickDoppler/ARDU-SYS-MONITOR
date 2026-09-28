@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-//  board_config.h  --  ALL hardware knowledge for the ARDU-DISPLAY-UNIT lives
+//  board_config.h  --  ALL hardware knowledge for this display unit lives
 //                      here.  Nothing else in the project touches a pin.
 //
 //  Board:    Arduino MEGA (ATmega1280 / ATmega2560)
