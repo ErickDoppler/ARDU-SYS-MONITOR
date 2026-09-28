@@ -1,0 +1,22 @@
+# Toolchain fetched by bootstrap -- never committed, it is 100s of MB
+/.toolchain/
+
+# Build output
+/DESKTOP/build/
+/ARDUINO/build/
+*.o
+*.obj
+*.exe
+*.elf
+*.hex
+
+# Note: DESKTOP/resources/appicon.ico IS committed on purpose. app.rc embeds it,
+# so a clean checkout must build without running a generator first. Regenerate
+# it with "make icon".
+
+# Editor / OS noise
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini

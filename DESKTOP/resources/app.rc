@@ -1,0 +1,41 @@
+// ---------------------------------------------------------------------------
+//  app.rc -- icon, manifest and the settings dialog template.
+//
+//  appicon.ico is generated, not hand-drawn: run
+//      sysmon.exe --export-icon resources\appicon.ico
+//  or let tools\build.ps1 do it. That keeps the executable's icon identical to
+//  the one IconFactory draws at runtime. The file is committed so a clean build
+//  does not need to run the binary first.
+// ---------------------------------------------------------------------------
+#include <windows.h>
+#include "../src/resource.h"
+
+IDI_APPICON ICON "appicon.ico"
+
+// 1 is the ID Windows looks for on an executable.
+1 RT_MANIFEST "app.manifest"
+
+IDD_SETTINGS DIALOGEX 0, 0, 276, 196
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "System Monitor - Settings"
+FONT 9, "Segoe UI", 400, 0, 0x1
+BEGIN
+    GROUPBOX        "Startup", -1, 8, 6, 260, 34
+    AUTOCHECKBOX    "Start automatically with Windows (elevated)",
+                    IDC_AUTOSTART, 18, 20, 240, 12
+
+    GROUPBOX        "Display link", -1, 8, 46, 260, 52
+    LTEXT           "Serial port:", -1, 18, 62, 52, 9
+    COMBOBOX        IDC_PORT_COMBO, 74, 59, 184, 120,
+                    CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Polling interval:", -1, 18, 81, 52, 9
+    COMBOBOX        IDC_INTERVAL_COMBO, 74, 78, 80, 120,
+                    CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+    GROUPBOX        "Status", -1, 8, 104, 260, 62
+    LTEXT           "", IDC_STATUS_TEXT, 18, 118, 240, 9
+    LTEXT           "", IDC_SOURCES_TEXT, 18, 130, 240, 30
+
+    DEFPUSHBUTTON   "Apply", IDOK, 156, 174, 52, 16
+    PUSHBUTTON      "Cancel", IDCANCEL, 214, 174, 52, 16
+END
