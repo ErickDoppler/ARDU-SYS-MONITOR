@@ -18,6 +18,11 @@ using clk = std::chrono::steady_clock;
 constexpr auto kAutoProbeWindow = std::chrono::milliseconds(3500);
 // No request for this long means the board is gone, even if the port is open.
 constexpr auto kLinkTimeout = std::chrono::seconds(20);
+// No BYTES at all for this long means the handle itself is dead. Distinct from
+// the above: a port whose device vanished can stay open and simply return zero
+// bytes for ever, which no amount of waiting for a valid request will detect --
+// and if a link was never established, the request timeout never applies at all.
+constexpr auto kSilenceTimeout = std::chrono::seconds(30);
 
 }  // namespace
 
@@ -75,6 +80,7 @@ void Monitor::run() {
     SensorSnapshot snapshot;
     auto lastSample = clk::now() - std::chrono::hours(1);  // force an immediate sample
     auto lastRequestAt = clk::now();
+    auto lastByteAt = clk::now();
     auto lastSendAt = clk::now() - std::chrono::hours(1);
 
     // AUTO mode state.
@@ -99,11 +105,16 @@ void Monitor::run() {
             dirty = m_settingsDirty;
             m_settingsDirty = false;
         }
-        if (dirty) {
+        // A settings change and a forced reconnect want the same thing: drop
+        // everything and start looking again from scratch. The candidate list is
+        // cleared too, so AUTO re-enumerates rather than walking a stale list of
+        // ports that may no longer exist.
+        if (dirty || m_reconnect.exchange(false)) {
             port.close();
             rxBuffer.clear();
             candidates.clear();
             haveRequest = false;
+            lastByteAt = clk::now();
             report(false);
         }
 
@@ -152,11 +163,13 @@ void Monitor::run() {
         }
 
         // --- drain the port ----------------------------------------------
+        const size_t beforeRead = rxBuffer.size();
         if (!port.read(rxBuffer)) {
             port.close();
             report(false);
             continue;
         }
+        if (rxBuffer.size() != beforeRead) lastByteAt = clk::now();
 
         for (const std::string &line : extractLines(rxBuffer)) {
             const auto req = parseRequest(line);
@@ -196,6 +209,18 @@ void Monitor::run() {
         if (settings.portIsAuto() && !haveRequest &&
             now - probeStarted > kAutoProbeWindow) {
             port.close();
+            continue;
+        }
+
+        // --- the handle itself went dead ----------------------------------
+        // Catches the post-resume case where the port is still open, ReadFile
+        // still succeeds, and nothing ever arrives.
+        if (now - lastByteAt > kSilenceTimeout) {
+            port.close();
+            report(false);
+            haveRequest = false;
+            candidates.clear();  // the device may now be on a different port
+            lastByteAt = now;
             continue;
         }
 

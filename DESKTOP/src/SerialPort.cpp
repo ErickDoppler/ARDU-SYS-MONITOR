@@ -91,6 +91,23 @@ bool SerialPort::read(std::string &appendTo) {
         return false;  // the port went away
     }
     if (got > 0) appendTo.append(buf, got);
+
+    // ReadFile succeeding is not proof the device is still there. When a USB
+    // serial adapter disappears -- unplugged, or re-enumerated while the machine
+    // was asleep -- the handle can stay "valid" and simply return zero bytes for
+    // ever, so a reader that only checks ReadFile waits for data that will never
+    // come. ClearCommError talks to the driver and fails once the device is gone,
+    // which is what actually detects it.
+    //
+    // It also clears any latched framing or overrun flags. Those are not treated
+    // as fatal: a single glitch on a hot-plugged cable is normal, the affected
+    // line fails its checksum and is dropped, and dropping the whole link for one
+    // bad byte would be worse than the glitch.
+    DWORD commErrors = 0;
+    COMSTAT status{};
+    if (!ClearCommError(static_cast<HANDLE>(m_handle), &commErrors, &status)) {
+        return false;
+    }
     return true;
 }
 

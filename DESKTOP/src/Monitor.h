@@ -33,6 +33,12 @@ public:
     // device changed.
     void applySettings(const Settings &settings);
 
+    // Drops the port and starts looking again. Called on resume from sleep and
+    // on a device-tree change: after either, the handle we hold may refer to a
+    // device that no longer exists, and such a handle does not reliably fail --
+    // it can simply return zero bytes for ever.
+    void forceReconnect() { m_reconnect = true; }
+
     bool connected() const { return m_connected.load(); }
     std::wstring activePort() const;
     SourceStatus sourceStatus() const;
@@ -45,6 +51,7 @@ private:
     std::thread m_thread;
     std::atomic<bool> m_stop{false};
     std::atomic<bool> m_connected{false};
+    std::atomic<bool> m_reconnect{false};
 
     mutable std::mutex m_mutex;
     Settings m_settings;

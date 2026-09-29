@@ -31,6 +31,35 @@ can be explained without digging through a log.
 
 ---
 
+## Recovering the link
+
+The agent drops and reopens the port when Windows broadcasts a resume from
+sleep. This is not belt-and-braces: while the machine is suspended the USB stack
+re-enumerates, and the handle the agent still holds refers to a device that no
+longer exists. Such a handle does not reliably fail -- `ReadFile` can keep
+succeeding with zero bytes for ever -- so without the resume notice the link
+simply never comes back.
+
+Three mechanisms cover the rest:
+
+- **`ClearCommError` after every read.** It talks to the driver and fails once
+  the device is gone, which is what actually detects an unplugged adapter.
+  Latched framing and overrun flags are cleared but not treated as fatal: one
+  glitch on a hot-plugged cable fails its checksum and is dropped, and killing
+  the link over a single bad byte would be worse than the glitch.
+- **A 30 s silence watchdog.** Distinct from the 20 s no-valid-request timeout:
+  that one only applies once a link has existed, whereas a port that was never
+  alive, or is open but dead, produces no bytes at all.
+- **Device-tree changes**, but only while already disconnected. `WM_DEVICECHANGE`
+  fires for any USB device on the machine, so acting on it unconditionally would
+  interrupt a healthy link every time a memory stick was plugged in.
+
+The window that receives all of this is a normal top-level window that is never
+shown, not a message-only one. `WM_POWERBROADCAST` and `WM_DEVICECHANGE` are
+delivered to top-level windows only, and `SetForegroundWindow` -- which
+`TrackPopupMenuEx` needs to report the clicked command reliably -- cannot succeed
+on a message-only window at all.
+
 ## Requires administrator
 
 The agent **exits with an explanation** if it is not elevated.

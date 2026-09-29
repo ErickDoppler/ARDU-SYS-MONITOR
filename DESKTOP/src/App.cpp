@@ -1,6 +1,7 @@
 #include "App.h"
 
 #include <commctrl.h>
+#include <dbt.h>
 #include <shellapi.h>
 
 #include "IconFactory.h"
@@ -62,10 +63,22 @@ bool App::init(HINSTANCE instance) {
     wc.hIconSm = icons::createAppIcon(16);
     if (!RegisterClassExW(&wc)) return false;
 
-    // A message-only window: it never shows, it just owns the tray icon and
-    // receives its callbacks on the UI thread.
-    m_window = CreateWindowExW(0, kWindowClass, L"System Monitor", 0, 0, 0, 0, 0,
-                               HWND_MESSAGE, nullptr, instance, this);
+    // A normal top-level window that is simply never shown -- NOT a message-only
+    // (HWND_MESSAGE) window, which is the obvious choice and the wrong one:
+    //
+    //   * SetForegroundWindow cannot succeed on a message-only window, and
+    //     TrackPopupMenuEx relies on it to dismiss and to report the clicked
+    //     command reliably. The tray menu misbehaves, Exit included.
+    //   * WM_POWERBROADCAST and WM_DEVICECHANGE are broadcast to top-level
+    //     windows only. A message-only window never hears that the machine
+    //     resumed or that USB re-enumerated, so a link lost across sleep is
+    //     never noticed.
+    //
+    // WS_EX_TOOLWINDOW keeps it out of the taskbar and Alt-Tab, so "never shown"
+    // really means invisible.
+    m_window = CreateWindowExW(WS_EX_TOOLWINDOW, kWindowClass, L"System Monitor",
+                               WS_OVERLAPPED, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0,
+                               nullptr, nullptr, instance, this);
     if (!m_window) return false;
 
     // Explorer broadcasts this after a restart; without handling it the icon
@@ -131,6 +144,35 @@ LRESULT App::wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_LINK_CHANGED:
             onLinkChanged(wp != 0);
             return 0;
+
+        case WM_POWERBROADCAST:
+            // Waking from sleep is the case that used to need the board power
+            // cycled. The USB stack re-enumerates while we are suspended, so the
+            // handle we hold refers to a device that no longer exists -- and a
+            // dead serial handle does not necessarily fail, it can simply return
+            // zero bytes forever. Drop it and reopen rather than wait for a
+            // timeout that may never fire.
+            if (wp == PBT_APMRESUMEAUTOMATIC || wp == PBT_APMRESUMESUSPEND ||
+                wp == PBT_APMRESUMECRITICAL) {
+                if (m_monitor) m_monitor->forceReconnect();
+            }
+            return TRUE;
+
+        case WM_DEVICECHANGE:
+            // DBT_DEVNODES_CHANGED needs no registration and covers the board
+            // being replugged, but it fires for ANY device-tree change -- a USB
+            // stick, a phone, another program opening a COM port. Acting on it
+            // unconditionally would drop a perfectly good link every time.
+            //
+            // So it only prompts a retry while we are already disconnected,
+            // where it turns a slow rediscovery into an immediate one. A link
+            // that is up but secretly dead is the silence watchdog's job, not
+            // this one's.
+            if (wp == DBT_DEVNODES_CHANGED || wp == DBT_DEVICEARRIVAL ||
+                wp == DBT_DEVICEREMOVECOMPLETE) {
+                if (m_monitor && !m_monitor->connected()) m_monitor->forceReconnect();
+            }
+            return TRUE;
 
         case WM_COMMAND:
             if (LOWORD(wp) == IDM_SETTINGS) onSettings();

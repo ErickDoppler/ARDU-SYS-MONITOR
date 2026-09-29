@@ -109,13 +109,19 @@ UINT TrayIcon::showMenu(HWND owner) {
     POINT pt{};
     GetCursorPos(&pt);
 
-    // Required for a tray menu to dismiss correctly when the user clicks away.
+    // Both of these are required, and both are easy to leave out because the
+    // menu still appears without them. SetForegroundWindow makes the menu
+    // dismiss when the user clicks elsewhere and makes TrackPopupMenuEx report
+    // the clicked command reliably; it only works because the owner is a real
+    // top-level window. The WM_NULL afterwards is the documented workaround for
+    // the menu otherwise sticking around after a selection.
     SetForegroundWindow(owner);
 
     const UINT cmd = static_cast<UINT>(TrackPopupMenuEx(
         menu, TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY, pt.x, pt.y, owner,
         nullptr));
 
+    PostMessageW(owner, WM_NULL, 0, 0);
     DestroyMenu(menu);
     return cmd;
 }
