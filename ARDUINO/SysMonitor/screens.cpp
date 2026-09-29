@@ -666,6 +666,26 @@ void resetHistory() {
     graphEpoch++;
 }
 
+void clearDataHistory() {
+    gCpu.reset();
+    gMem.reset();
+    gGpuPwr.reset();
+    gGpuFps.reset();
+    gPower.reset();
+    gNetRx.reset();
+    gNetTx.reset();
+
+    // The auto-scaled maxima described data that has just been discarded, so a
+    // stale peak would otherwise flatten the whole plot once readings resume.
+    maxNetRx = 1;
+    maxNetTx = 1;
+    maxPower = 1;
+    gpuScale = 200;
+
+    // gDiag and maxDiagLen are intentionally untouched.
+    graphEpoch++;
+}
+
 void invalidate() {
     painted = SysData();
     paintedEpoch = 0xFFFF;

@@ -100,6 +100,17 @@ public:
     // nothing new has arrived since it last painted.
     uint16_t generation() const { return m_generation; }
 
+    // Throws away everything, so every field reads back as SYSMON_NA.
+    //
+    // Used when the link drops. Holding the last values would be worse than
+    // showing nothing: they keep looking like live readings, and the graphs go
+    // on drawing them once a second as though the machine were still reporting.
+    void clear() {
+        m_buf[0] = SysData();
+        m_buf[1] = SysData();
+        m_generation++;
+    }
+
 private:
     SysData m_buf[2];
     uint8_t m_backIndex = 0;

@@ -75,6 +75,10 @@ static const unsigned long kDiagTapGuardMs = 2000;
 static unsigned long screenSinceMs = 0;
 static bool screenPersisted = false;
 
+// Link state as of the previous loop, so the drop can be acted on once rather
+// than every iteration while it stays down.
+static bool linkWasUp = false;
+
 // The render clock. Fixed and independent of arrivals, so the panel updates in
 // tempo whether the agent is early, late or bursty. History advances one sample
 // per tick, so this is also the horizontal scale of every graph: 1 px = 1 s, and
@@ -198,6 +202,24 @@ void loop() {
     }
 
     link.tick(currentScreen);
+
+    // --- the link just went down -------------------------------------------
+    // Drop everything the agent told us. Keeping the last values would leave
+    // plausible-looking readings on screen next to a red link indicator, and --
+    // worse -- the render tick would go on pushing them into history once a
+    // second, drawing a confident flat line out of data that stopped arriving.
+    //
+    // History keeps advancing after this, but with empty samples, so the time
+    // axis stays honest: the outage shows up as a gap of exactly its own length
+    // rather than as a plateau.
+    const bool linkUpNow = link.linkUp();
+    if (!linkUpNow && linkWasUp) {
+        store.clear();
+        screens::clearDataHistory();
+        layoutDirty = true;  // repaint so every field reads n/a immediately
+        Serial.println(F("# link lost - data cleared"));
+    }
+    linkWasUp = linkUpNow;
 
     // --- remember a settled screen -----------------------------------------
     // Unsigned subtraction, so this still behaves when millis() wraps at ~49

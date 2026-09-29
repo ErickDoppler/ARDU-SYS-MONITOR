@@ -152,6 +152,25 @@ That is what keeps older samples correct when the scale steps — a stored
 percentage would silently mean something different after the change. One byte
 covers 0–508 at 2-unit resolution, about a pixel on a 119 px plot.
 
+### Losing the link
+
+When the link goes red -- no valid frame for 20 s -- the firmware discards every
+stored value and clears the measurement history. Holding the last readings would
+leave plausible-looking numbers on screen beside a red indicator, and the render
+tick would go on pushing them into history once a second, drawing a confident
+flat line out of data that stopped arriving.
+
+History keeps advancing afterwards, with empty samples, so the time axis stays
+honest: an outage appears as a gap of exactly its own length rather than as a
+plateau. Fields read `n/a` until real data returns.
+
+The diagnostics timing graph is deliberately NOT cleared. The measurement graphs
+are showing data that is no longer arriving; the diagnostics graph is showing the
+outage itself, which is the one thing worth looking at at that moment.
+
+This fires on the red state only, not on the amber "stale" one at 8 s -- a late
+frame is not the same as a dead link.
+
 ### Screen persistence
 
 A screen that stays on show for **one minute** is written to EEPROM, and restored

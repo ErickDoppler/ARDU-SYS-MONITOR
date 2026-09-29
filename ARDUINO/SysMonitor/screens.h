@@ -56,6 +56,12 @@ const __FlashStringHelper *name(uint8_t screenId);
 
 void resetHistory();
 
+// Clears the per-screen history but deliberately KEEPS the diagnostics timing
+// graph. Called when the link drops: the measurement graphs are showing data
+// that is no longer arriving, whereas the diagnostics graph is showing the
+// outage itself, which is the one thing worth looking at at that moment.
+void clearDataHistory();
+
 }  // namespace screens
 
 #endif  // SCREENS_H
