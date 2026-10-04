@@ -1,4 +1,4 @@
-| 4 | GPU | usage, clock, temp, power, VRAM; combined power + framerate history |# Multi Screen System Monitor
+# Multi Screen System Monitor
 
 A hardware system monitor. A Windows agent collects telemetry and sends it to an
 **Arduino MEGA** driving a **320×240 SSD1289 TFT**, which displays it across
@@ -87,7 +87,7 @@ returns.
 | 1 | CPU | usage, frequency, temperature, process count, uptime, history |
 | 2 | CORES | per-core bars and clocks |
 | 3 | MEMORY | used / total / cached, commit, history |
-| 4 | GPU | usage, watts, clock, VRAM, framerate, twin-scale strip |
+| 4 | GPU | framerate headline, GPU load bar, clock, temp, power, VRAM; combined power + framerate history |
 | 5 | POWER | combined draw, per-rail breakdown, history |
 | 6 | NETWORK | up/down rates, session totals, link speed |
 | 7 | PROCESSES | CPU strip plus the top 12 by CPU and memory |

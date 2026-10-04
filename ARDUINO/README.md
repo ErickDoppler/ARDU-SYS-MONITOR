@@ -1,4 +1,4 @@
-| 4 | GPU | usage, clock, temp, power, VRAM; combined power + framerate history |# Display firmware
+# Display firmware
 
 Firmware for an Arduino MEGA driving a 320×240 parallel TFT, showing telemetry
 sent by the [desktop agent](../DESKTOP/README.md) across seven tap-switched
@@ -84,7 +84,7 @@ Tap anywhere to advance.
 | 1 | CPU | usage, frequency, temperature, process count, uptime, history |
 | 2 | CORES | per-core bars and clocks, two columns |
 | 3 | MEMORY | used / total / cached, commit, history |
-| 4 | GPU | usage, watts, clock, VRAM, framerate; twin-scale strip, usage orange over clock blue |
+| 4 | GPU | framerate headline, GPU load bar, clock, temp, power, VRAM; combined power + framerate history |
 | 5 | POWER | combined draw with a per-rail breakdown and history |
 | 6 | NETWORK | up/down rates, session totals, link speed, two graphs |
 | 7 | PROCESSES | 30 px CPU strip plus the top 12 by CPU, with memory |
@@ -151,6 +151,15 @@ Samples are stored as **units ÷ 2**, not as a percentage of the active scale.
 That is what keeps older samples correct when the scale steps — a stored
 percentage would silently mean something different after the change. One byte
 covers 0–508 at 2-unit resolution, about a pixel on a 119 px plot.
+
+### Zero is not the same as unknown
+
+Framerate reads **0** when the agent is connected but nothing is presenting
+frames, and **n/a** only when there is no link at all. RTSS reports nothing in
+both cases, so the firmware uses the link state to tell them apart: connected
+with no renderer genuinely means zero frames, whereas no link means we do not
+know. The graph follows the same rule — a real zero, not a gap — so the number
+and its trace never disagree.
 
 ### Losing the link
 

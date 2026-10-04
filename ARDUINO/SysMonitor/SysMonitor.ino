@@ -228,6 +228,12 @@ void loop() {
         screens::clearDataHistory();
         layoutDirty = true;  // repaint so every field reads n/a immediately
         Serial.println(F("# link lost - data cleared"));
+    } else if (linkUpNow && !linkWasUp) {
+        // Coming back up changes how absent values are rendered -- an unavailable
+        // framerate reads 0 while connected and n/a while not -- and that is a
+        // change the per-field comparison cannot see, because the underlying
+        // value did not move.
+        layoutDirty = true;
     }
     linkWasUp = linkUpNow;
 

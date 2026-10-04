@@ -51,6 +51,18 @@ bool paintedLink = false;
 bool paintedStale = false;
 bool linkKnown = false;
 
+// Current link state, kept for screens rather than for the pip.
+bool s_linkUp = false;
+
+// Framerate as it should be displayed. RTSS reports nothing when no application
+// is presenting frames, which arrives as SYSMON_NA -- but while the agent is
+// connected that genuinely means zero frames, not an absent sensor. With no
+// link at all it stays n/a, because then we simply do not know.
+int fpsForDisplay(int fps) {
+    if (fps != SYSMON_NA) return fps;
+    return s_linkUp ? 0 : SYSMON_NA;
+}
+
 // Last peaks the auto-scaled axes were drawn with. Those axes only change when a
 // new maximum appears, so they are change-detected like any other field rather
 // than repainted on every tick.
@@ -312,6 +324,7 @@ void staticGpu() {
     ui::label(158, kTop + 30, F("temp"));
     ui::label(158, kTop + 44, F("power"));
     ui::label(158, kTop + 58, F("vram"));
+    ui::label(12, kTop + 70, F("load"));
 
     ui::box(4, kGpuPanelY - 6, 312, kGpuPanelH + 12, F("power / framerate"));
 }
@@ -330,10 +343,14 @@ void unitValue(char *buf, uint8_t len, int value, char unit) {
 void liveGpu(const SysData &d, bool force) {
     char buf[16];
 
-    if (force || painted.gpuUsage != d.gpuUsage) {
-        ui::formatValue(buf, sizeof(buf), d.gpuUsage, "");
-        tft.fillRect(12, kTop + 14, 120, 40, C_BG);
-        ui::bigNumber(12, kTop + 14, buf, heatColor(d.gpuUsage), "%", 5);
+    // Framerate leads: it is the number you look up to check, where GPU load is
+    // context for it. Same lime as the plot line, so the headline and its trace
+    // read as one quantity.
+    const int fpsShown = fpsForDisplay(d.fps);
+    if (force || fpsForDisplay(painted.fps) != fpsShown) {
+        ui::formatValue(buf, sizeof(buf), fpsShown, "");
+        tft.fillRect(12, kTop + 14, 132, 40, C_BG);
+        ui::bigNumber(12, kTop + 14, buf, C_FPS, "fps", 5);
     }
     if (force || painted.gpuClock != d.gpuClock) {
         ui::formatValue(buf, sizeof(buf), d.gpuClock, " MHz");
@@ -351,22 +368,13 @@ void liveGpu(const SysData &d, bool force) {
         pairText(buf, sizeof(buf), d.vramUsed, d.vramTotal);
         ui::valueField(306, kTop + 58, 100, buf, C_TEXT);
     }
-    // VRAM meter sits under the headline number, using space the big digits
-    // leave empty rather than taking a row of its own.
-    if (force || painted.vramUsed != d.vramUsed || painted.vramTotal != d.vramTotal) {
-        ui::meter(12, kTop + 60, 132, 10, vramPercent(d));
-    }
-    if (force || painted.fps != d.fps) {
-        // Framerate only means something while something is presenting frames, so
-        // an absent value says "idle" rather than showing 0 fps.
-        tft.fillRect(12, kTop + 74, 132, 9, C_BG);
-        ui::label(12, kTop + 74, F("fps"), C_LABEL);
-        if (d.fps == SYSMON_NA) {
-            ui::valueRight(144, kTop + 74, "idle", C_DIM, 1);
-        } else {
-            ui::formatValue(buf, sizeof(buf), d.fps, "");
-            ui::valueRight(144, kTop + 74, buf, C_FPS, 1);
-        }
+    // GPU load becomes the bar, under the headline number. A percentage is what a
+    // meter expresses well -- fixed, meaningful full scale -- whereas framerate
+    // has no ceiling for a bar to fill.
+    if (force || painted.gpuUsage != d.gpuUsage) {
+        ui::meter(12, kTop + 58, 132, 10, d.gpuUsage);
+        ui::formatValue(buf, sizeof(buf), d.gpuUsage, "%");
+        ui::valueField(144, kTop + 70, 46, buf, heatColor(d.gpuUsage));
     }
 
     // --- the combined plot -------------------------------------------------
@@ -392,8 +400,8 @@ void liveGpu(const SysData &d, bool force) {
                   'W');
         ui::valueField(kGpuReadRight, kGpuPanelY + 6, 30, buf, C_PWR);
     }
-    if (force || painted.fps != d.fps) {
-        unitValue(buf, sizeof(buf), d.fps, 'f');
+    if (force || fpsForDisplay(painted.fps) != fpsShown) {
+        unitValue(buf, sizeof(buf), fpsShown, 'f');
         ui::valueField(kGpuReadRight, kGpuPanelY + 20, 30, buf, C_FPS);
     }
 }
@@ -739,7 +747,10 @@ void record(uint8_t id, const SysData &d) {
             // plot, so nothing visible is lost.
             gGpuPwr.push(gpuSample(d.gpuPower == SYSMON_NA ? SYSMON_NA
                                                            : d.gpuPower / 10));
-            gGpuFps.push(gpuSample(d.fps));
+            // Same rule as the readouts: connected with nothing rendering plots a
+            // real zero, no link plots a gap. Otherwise the number would say 0
+            // while the trace showed a hole.
+            gGpuFps.push(gpuSample(fpsForDisplay(d.fps)));
             updateGpuScale();
             break;
         case SCR_POWER:
@@ -793,6 +804,11 @@ void drawStatic(uint8_t id) {
 }
 
 void drawLinkState(bool linkUp, bool stale) {
+    // Recorded unconditionally, before the early-out below. Screens need the
+    // current link state to tell "connected, nothing rendering" from "no
+    // connection" -- the difference between showing 0 fps and showing n/a.
+    s_linkUp = linkUp;
+
     if (linkKnown && linkUp == paintedLink && stale == paintedStale) return;
     ui::headerLink(linkUp, stale);
     paintedLink = linkUp;
