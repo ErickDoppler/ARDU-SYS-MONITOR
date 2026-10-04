@@ -31,6 +31,32 @@ can be explained without digging through a log.
 
 ---
 
+## Resetting the board on purpose
+
+The agent **hardware-resets the board** at exactly two moments: when the agent
+starts, and when Windows reports a resume from sleep. It does this by pulsing
+DTR, which on a board with an FTDI or 16U2 bridge is wired to RESET through a
+capacitor.
+
+That coupling is usually a nuisance — it is why the port is otherwise opened with
+`DTR_CONTROL_DISABLE`, since resetting on every reconnect wiped the display's
+graph history and made a dropped link look like a crash. Used deliberately at one
+moment it is the only thing that reaches a board whose **MCU has stopped**: a hung
+AVR answers nothing, so there is no reply to wait for and no timeout that leads
+anywhere. The reset makes `setup()` run, which reconfigures the panel — and a
+blank white panel is precisely the symptom of an SSD1289 that was never
+configured.
+
+It is **not** done on routine reconnects. A reset costs the display its history,
+which is a poor trade for a link that merely blipped.
+
+**One caveat worth knowing.** The reset is spent on the first port the agent
+opens, whether or not that port turns out to be the board — so with the port set
+to `AUTO` and several serial devices present, one unrelated device may receive a
+reset pulse at agent start. Exactly one port is pulsed per event, never all of
+them. If that matters on your machine, pin the port in Settings instead of
+leaving it on `AUTO`.
+
 ## Recovering the link
 
 The agent drops and reopens the port when Windows broadcasts a resume from

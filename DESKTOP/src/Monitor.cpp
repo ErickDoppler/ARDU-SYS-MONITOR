@@ -156,9 +156,19 @@ void Monitor::run() {
                     continue;
                 }
             }
-            // Opening asserts DTR, which resets an FTDI/16U2 board. It comes back
-            // with {Q;HELLO}, which is what both auto-detect and the link check
-            // are waiting for.
+            // A pending reset request is spent here, on the first port opened
+            // after the agent started or the machine resumed.
+            //
+            // Consumed whether or not the pulse worked, and whether or not this
+            // turns out to be our board: exactly one port is reset per event.
+            // Pulsing every candidate in AUTO mode would reach whatever else is
+            // plugged in, and a monitor has no business resetting someone's
+            // other hardware more than that.
+            if (m_resetBoard.exchange(false)) {
+                port.pulseDtrReset();
+                rxBuffer.clear();
+            }
+
             lastRequestAt = clk::now();
         }
 

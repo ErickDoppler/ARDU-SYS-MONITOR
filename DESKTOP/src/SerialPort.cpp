@@ -111,6 +111,36 @@ bool SerialPort::read(std::string &appendTo) {
     return true;
 }
 
+bool SerialPort::pulseDtrReset() {
+    if (!m_handle) return false;
+
+    // On a board with an FTDI or 16U2 bridge, DTR is wired to RESET through a
+    // capacitor, so asserting it reboots the MCU. The port is normally opened
+    // with DTR_CONTROL_DISABLE precisely to avoid that -- resetting on every
+    // reconnect wiped the display's graph history and made a dropped link look
+    // like a crash.
+    //
+    // Deliberately, at one moment, it is the only thing that can revive a board
+    // whose MCU has stopped: a hung AVR answers nothing, so no amount of
+    // reopening the port or waiting reaches it. The reset makes setup() run,
+    // which reconfigures the panel and clears a blank white screen.
+    //
+    // EscapeCommFunction rather than the DCB, because the DCB deliberately holds
+    // DTR deasserted and this has to override that for one pulse.
+    auto *h = static_cast<HANDLE>(m_handle);
+
+    if (!EscapeCommFunction(h, SETDTR)) return false;
+    Sleep(120);  // comfortably past the RC time constant on the reset line
+    if (!EscapeCommFunction(h, CLRDTR)) return false;
+
+    // The bootloader waits about a second before handing over, and setup() then
+    // initialises the panel. Returning earlier would mean talking to a board
+    // that is still in its bootloader, whose replies are not our protocol.
+    Sleep(1800);
+    PurgeComm(h, PURGE_RXCLEAR | PURGE_TXCLEAR);
+    return true;
+}
+
 bool SerialPort::write(const std::string &data) {
     if (!m_handle) return false;
 

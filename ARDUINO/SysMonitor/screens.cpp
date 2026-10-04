@@ -1,6 +1,7 @@
 #include "screens.h"
 
 #include "link.h"
+#include "watchdog.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -577,14 +578,30 @@ void liveProc(const SysData &d, bool force) {
 //  Diagnostics  (long press)
 // ===========================================================================
 void staticDiag() {
-    ui::box(4, kTop + 4, 312, 40, F("link"));
-    ui::box(4, kTop + 48, 312, 76, F("bytes per 1s tick"));
+    ui::box(4, kTop + 4, 312, 52, F("link"));
+    ui::box(4, kTop + 60, 312, 64, F("bytes per 1s tick"));
     ui::box(4, kTop + 128, 312, 96, F("messages from host"));
 
     ui::label(12, kTop + 16, F("ok"));
     ui::label(90, kTop + 16, F("bad"));
     ui::label(168, kTop + 16, F("last"));
     ui::label(246, kTop + 16, F("age"));
+
+    // Static: neither changes while the board is running, and both are evidence
+    // about the last restart rather than live readings.
+    char buf[24];
+    tft.setTextSize(1);
+    tft.setTextColor(C_DIM, C_BG);
+    tft.printAt(12, kTop + 36, F("reset"));
+    tft.setTextColor(C_TEXT, C_BG);
+    tft.printAt(52, kTop + 36, sysmonResetCause());
+
+    tft.setTextColor(C_DIM, C_BG);
+    tft.printAt(150, kTop + 36, F("stack free"));
+    snprintf(buf, sizeof(buf), "%uB", (unsigned)sysmonStackFree());
+    // Red if the stack has come close to the globals: that is the failure mode
+    // that would corrupt the display driver and leave a blank white panel.
+    ui::valueRight(306, kTop + 36, buf, sysmonStackFree() < 256 ? C_CRIT : C_TEXT, 1);
 }
 
 void liveDiag(const SysData &d, bool force) {
@@ -615,11 +632,11 @@ void liveDiag(const SysData &d, bool force) {
 
     // Timing graph: one bucket per second, height = longest message in it.
     if (force || paintedEpoch != graphEpoch) {
-        ui::graphPlot(8, kTop + 54, 302, 66, gDiag, C_CPU, 0,
+        ui::graphPlot(8, kTop + 66, 302, 54, gDiag, C_CPU, 0,
                       force || paintedMaxDiag != maxDiagLen);
     }
     if (force || paintedMaxDiag != maxDiagLen) {
-        ui::graphAxes(8, kTop + 54, 302, 66, maxDiagLen, "B");
+        ui::graphAxes(8, kTop + 66, 302, 54, maxDiagLen, "B");
         paintedMaxDiag = maxDiagLen;
     }
 

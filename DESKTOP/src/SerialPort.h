@@ -32,6 +32,11 @@ public:
 
     bool write(const std::string &data);
 
+    // Pulses DTR to hardware-reset an Arduino-style board, then waits for it to
+    // come back. Used deliberately and sparingly -- see the .cpp for why this is
+    // both the cure and, if done at the wrong moment, the disease.
+    bool pulseDtrReset();
+
     const std::wstring &device() const { return m_device; }
 
 private:

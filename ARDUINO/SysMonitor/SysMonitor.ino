@@ -47,6 +47,7 @@
 #include "persist.h"
 #include "screens.h"
 #include "theme.h"
+#include "watchdog.h"
 #include "TftSSD1289.h"
 #include "TouchPanel.h"
 #include "widgets.h"
@@ -133,6 +134,14 @@ void setup() {
     Serial.println();
     Serial.println(F("# ARDU-SYS-MONITOR display firmware"));
 
+    // Why the board restarted. A watchdog cause means the firmware hung and
+    // recovered itself; brown-out means the supply sagged, which is a hardware
+    // problem no amount of firmware will fix. Worth knowing which.
+    Serial.print(F("# reset: "));
+    Serial.print(sysmonResetCause());
+    Serial.print(F("  stack free: "));
+    Serial.println(sysmonStackFree());
+
     // Come back on whichever screen was last settled on. Falls through to the
     // CPU screen when the EEPROM is blank, holds a foreign value, or was written
     // by a build with a different set of screens.
@@ -157,6 +166,7 @@ void setup() {
     // Hold the splash for one render period rather than clearing it instantly,
     // so it is readable on a cold start.
     lastRender = millis();
+
 }
 
 void loop() {

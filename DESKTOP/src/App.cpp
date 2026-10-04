@@ -90,6 +90,13 @@ bool App::init(HINSTANCE instance) {
     if (!m_tray.create(m_window, WM_TRAY_CALLBACK)) return false;
 
     m_monitor = std::make_unique<Monitor>();
+
+    // Start the board from a known state. This is the autostart case: the
+    // machine has just booted, the board has been running on its own for hours
+    // without a host, and whatever state it ended up in is not something the
+    // agent can inspect or reason about. One reset puts it somewhere definite,
+    // with its panel freshly initialised.
+    m_monitor->requestBoardReset();
     m_monitor->start(m_settings, [this](bool connected) {
         // Called on the worker thread: hop to the UI thread before touching the
         // tray, since Shell_NotifyIcon belongs to the window's thread.
@@ -154,7 +161,11 @@ LRESULT App::wndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             // timeout that may never fire.
             if (wp == PBT_APMRESUMEAUTOMATIC || wp == PBT_APMRESUMESUSPEND ||
                 wp == PBT_APMRESUMECRITICAL) {
-                if (m_monitor) m_monitor->forceReconnect();
+                // Reset the board, not merely reopen the port. Reopening cannot
+                // help if the MCU itself stopped while we were suspended: a hung
+                // AVR answers nothing, so there is no reply to wait for and no
+                // timeout that leads anywhere.
+                if (m_monitor) m_monitor->requestBoardReset();
             }
             return TRUE;
 
